@@ -1,3 +1,4 @@
+#-*- coding:utf-8 -*-   #允许文档中有中文
 """
 """
 import cPickle
@@ -18,10 +19,12 @@ from mlp import HiddenLayer
 from rbm import RBM
 from prep_timit import load_data
 
-DATASET = '/media/bigdata/TIMIT'
-N_FRAMES = 11 # HAS TO BE AN ODD NUMBER 
+#DATASET = '/media/bigdata/TIMIT'
+DATASET = './QBH'   #训练数据和标注数据所在文件夹
+N_FRAMES = 20 # HAS TO BE AN ODD NUMBER 特征抽取的窗长(帧数)
               #(same number before and after center frame)
-
+DIMENSION = 1  #dimension of feature vector 每帧的数据维数
+N_OUTS = 100    #dimension of the output
 
 class DBN(object):
     """Deep Belief Network
@@ -34,27 +37,39 @@ class DBN(object):
     regression layer on top.
     """
 
-    def __init__(self, numpy_rng, theano_rng=None, n_ins=39 * N_FRAMES,
-                 hidden_layers_sizes=[1024, 1024], n_outs=62 * 3):
+    '''深度置信网络(DBN)
+
+    一个深度置信网络由若干叠加的受限波茨曼机(RBM)相互组成
+    第i层RBM的输出是i+1层的输入，第1层的输入是网络输入，最后一层输出是网络输出
+    用作分类时，通过在顶层加入一个logistic回归，DBN被当作一个多层感知器网络(MLP)
+    '''
+
+    def __init__(self, numpy_rng, theano_rng=None, n_ins=DIMENSION * N_FRAMES,
+                 hidden_layers_sizes=[1024, 1024], n_outs=N_OUTS):
         """This class is made to support a variable number of layers.
 
         :type numpy_rng: numpy.random.RandomState
         :param numpy_rng: numpy random number generator used to draw initial
                     weights
+                    numpy随机数生成器,用于初始化权重
 
         :type theano_rng: theano.tensor.shared_randomstreams.RandomStreams
         :param theano_rng: Theano random generator; if None is given one is
                            generated based on a seed drawn from `rng`
+                           theano随机数生成器
 
         :type n_ins: int
         :param n_ins: dimension of the input to the DBN
+                        DBN的输入样本维数
 
         :type n_layers_sizes: list of ints
         :param n_layers_sizes: intermediate layers size, must contain
                                at least one value
+                               每个隐层大小,至少一个数
 
         :type n_outs: int
         :param n_outs: dimension of the output of the network
+                        输出维数
         """
 
         self.sigmoid_layers = []
@@ -68,8 +83,9 @@ class DBN(object):
             theano_rng = RandomStreams(numpy_rng.randint(2 ** 30))
 
         # allocate symbolic variables for the data
-        self.x = T.matrix('x')  # the data is presented as rasterized images
-        self.y = T.ivector('y')  # the labels are presented as 1D vector
+        # 为数据开辟符号变量
+        self.x = T.matrix('x')  # the data is presented as rasterized images 数据表示为光栅图像
+        self.y = T.ivector('y')  # the labels are presented as 1D vector 标签表示为一维整形数组
                                  # of [int] labels
 
         # The DBN is an MLP, for which all weights of intermediate
@@ -81,6 +97,8 @@ class DBN(object):
         # weights of the MLP as well) During finetuning we will finish
         # training the DBN by doing stochastic gradient descent on the
         # MLP.
+
+        # 当DBN中间层
 
         for i in xrange(self.n_layers):
             # construct the sigmoidal layer
@@ -149,13 +167,16 @@ class DBN(object):
         as input the minibatch index, and to train an RBM you just
         need to iterate, calling the corresponding function on all
         minibatch indexes.
+        生成一系列函数，在给定的层执行一步梯度下降。
+        函数需要小批量索引作为输入，在所有小批量索引上执行相关函数
 
         :type train_set_x: theano.tensor.TensorType
         :param train_set_x: Shared var. that contains all datapoints used
                             for training the RBM
+                            共享变量，包含训练RBM的所有数据点
         :type batch_size: int
-        :param batch_size: size of a [mini]batch
-        :param k: number of Gibbs steps to do in CD-k / PCD-k
+        :param batch_size: size of a [mini]batch 小批量数据的大小
+        :param k: number of Gibbs steps to do in CD-k / PCD-k 做Gibbs步骤的数目
 
         '''
 
@@ -196,6 +217,9 @@ class DBN(object):
         finetuning, a function `validate` that computes the error on a
         batch from the validation set, and a function `test` that
         computes the error on a batch from the testing set
+        建立一个train函数实现一步微调
+        一个validate函数计算一批数据与校验集比较的错误
+        一个test函数激素啊一批数据与测试集比较的错误
 
         :type datasets: list of pairs of theano.tensor.TensorType
         :param datasets: It is a list that contain all the datasets;
@@ -203,10 +227,12 @@ class DBN(object):
                         `valid`, `test` in this order, where each pair
                         is formed of two Theano variables, one for the
                         datapoints, the other for the labels
+                        包含所有数据集的列表，包含三对数据，train，valid，test
+                        每对数据包含两个theano变量，数据和标签
         :type batch_size: int
-        :param batch_size: size of a minibatch
+        :param batch_size: size of a minibatch 小批量数据的大小
         :type learning_rate: float
-        :param learning_rate: learning rate used during finetune stage
+        :param learning_rate: learning rate used during finetune stage 微调时用的学习率
 
         '''
 
@@ -266,24 +292,34 @@ def test_DBN(finetune_lr=0.1, pretraining_epochs=42, # TODO 1000
              dataset=DATASET, batch_size=10):
     """
 
-    :type learning_rate: float
-    :param learning_rate: learning rate used in the finetune stage
+    :type finetune_lr: float
+    :param finetune_lr: learning rate used in the finetune stage
+                        微调阶段用的学习率
     :type pretraining_epochs: int
     :param pretraining_epochs: number of epoch to do pretraining
+                                预训练次数
     :type pretrain_lr: float
     :param pretrain_lr: learning rate to be used during pre-training
+                        预训练时用的学习率
     :type k: int
-    :param k: number of Gibbs steps in CD/PCD
+    :param k: number of Gibbs steps in CD/PCD 
+                做Gibbs步骤的数目
     :type training_epochs: int
-    :param training_epochs: maximal number of iterations ot run the optimizer
+    :param training_epochs: maximal number of iterations to run the optimizer
+                            最大优化次数(微调次数)
     :type dataset: string
     :param dataset: path the the pickled dataset
+                    数据文件路径
     :type batch_size: int
     :param batch_size: the size of a minibatch
+                        小批量数据大小
     """
 
     print "loading dataset from", dataset
-    datasets = load_data(dataset, nframes=N_FRAMES, unit=True, normalize=False)
+    #读dataset文件夹下的训练集数据和标签aligned_train_xdata.npy,aligned_train_ylabels.npy
+    #测试集数据和标签aligned_test_xdata.npy,aligned_test_ylabels.npy
+    #生成校验集数据和标签valid_set_x,valid_set_y
+    datasets = load_data(dataset, nframes=N_FRAMES, unit=False, normalize=False)
 
     train_set_x, train_set_y = datasets[0]
     valid_set_x, valid_set_y = datasets[1] 
@@ -294,19 +330,23 @@ def test_DBN(finetune_lr=0.1, pretraining_epochs=42, # TODO 1000
     print "test set size", test_set_x.shape[0]
 
     # compute number of minibatches for training, validation and testing
+    # 计算小批量数据数量
     n_train_batches = train_set_x.get_value(borrow=True).shape[0] / batch_size
 
-    # numpy random generator
+    # numpy random generator 
+    # numpy随机数生成器
     numpy_rng = numpy.random.RandomState(123)
     print '... building the model'
     # construct the Deep Belief Network
-    dbn = DBN(numpy_rng=numpy_rng, n_ins=39 * N_FRAMES,
+    # 建立DBN
+    dbn = DBN(numpy_rng=numpy_rng, n_ins=DIMENSION * N_FRAMES,
               hidden_layers_sizes=[512, 512],
-              n_outs=62 * 3)
+              n_outs=N_OUTS)
 
     #########################
     # PRETRAINING THE MODEL #
     #########################
+    # 预训练模型
     print '... getting the pretraining functions'
     pretraining_fns = dbn.pretraining_functions(train_set_x=train_set_x,
                                                 batch_size=batch_size,
@@ -315,10 +355,13 @@ def test_DBN(finetune_lr=0.1, pretraining_epochs=42, # TODO 1000
     print '... pre-training the model'
     start_time = time.clock()
     ## Pre-train layer-wise
+    # 逐层预训练
     for i in xrange(dbn.n_layers):
         # go through pretraining epochs
+        # 迭代进行预训练
         for epoch in xrange(pretraining_epochs):
             # go through the training set
+            # 遍历训练集
             c = []
             for batch_index in xrange(n_train_batches):
                 c.append(pretraining_fns[i](index=batch_index,
@@ -334,25 +377,29 @@ def test_DBN(finetune_lr=0.1, pretraining_epochs=42, # TODO 1000
     ########################
     # FINETUNING THE MODEL #
     ########################
+    # 微调模型
 
     # get the training, validation and testing function for the model
+    # 生成训练、校验、测试函数
     print '... getting the finetuning functions'
     train_fn, validate_model, test_model = dbn.build_finetune_functions(
                 datasets=datasets, batch_size=batch_size,
                 learning_rate=finetune_lr)
 
     print '... finetuning the model'
-    # early-stopping parameters
-    patience = 4 * n_train_batches  # look as this many examples regardless
+    # early-stopping parameters 停止参数
+    patience = 4 * n_train_batches  # look as this many examples regardless 查看这么多样本
     patience_increase = 2.    # wait this much longer when a new best is
-                              # found
+                              # found 找到新的最佳时等待的时间
     improvement_threshold = 0.995  # a relative improvement of this much is
-                                   # considered significant
+                                   # considered significant 相关提升门限，高于门限才被认为是有效的 
     validation_frequency = min(n_train_batches, patience / 2)
-                                  # go through this many
+                                  # go through this many 
                                   # minibatche before checking the network
                                   # on the validation set; in this case we
-                                  # check every epoch
+                                  # check every epoch 
+                                  # 遍历这么多个小批量数据才在校验集上校验一次网络
+                                  # 在这种情况下，每次迭代都校验
 
     best_params = None
     best_validation_loss = numpy.inf
@@ -362,13 +409,16 @@ def test_DBN(finetune_lr=0.1, pretraining_epochs=42, # TODO 1000
     done_looping = False
     epoch = 0
 
+    # 迭代进行微调
     while (epoch < training_epochs) and (not done_looping):
         epoch = epoch + 1
+        # 遍历每个小批量数据
         for minibatch_index in xrange(n_train_batches):
 
             minibatch_avg_cost = train_fn(minibatch_index)
             iter = epoch * n_train_batches + minibatch_index
 
+            # 每validation_frequency次进行一次校验
             if (iter + 1) % validation_frequency == 0:
 
                 validation_losses = validate_model()
@@ -378,18 +428,22 @@ def test_DBN(finetune_lr=0.1, pretraining_epochs=42, # TODO 1000
                        this_validation_loss * 100.))
 
                 # if we got the best validation score until now
+                # 得到最佳校验得分
                 if this_validation_loss < best_validation_loss:
 
                     #improve patience if loss improvement is good enough
+                    # 如果损失提升足够好，提升patience
                     if (this_validation_loss < best_validation_loss *
                         improvement_threshold):
                         patience = max(patience, iter * patience_increase)
 
                     # save best validation score and iteration number
+                    # 存储最佳校验结果和迭代次数
                     best_validation_loss = this_validation_loss
                     best_iter = iter
 
                     # test it on the test set
+                    # 在测试集上测试
                     test_losses = test_model()
                     test_score = numpy.mean(test_losses)
                     print(('     epoch %i, minibatch %i/%i, test error of '
@@ -397,6 +451,7 @@ def test_DBN(finetune_lr=0.1, pretraining_epochs=42, # TODO 1000
                           (epoch, minibatch_index + 1, n_train_batches,
                            test_score * 100.))
 
+            #patient小于迭代次数，停止迭代
             if patience <= iter:
                 done_looping = True
                 break

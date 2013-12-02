@@ -1,3 +1,4 @@
+#-*- coding:utf-8 -*-   #允许文档中有中文
 import theano, copy, sys, json, cPickle
 import theano.tensor as T
 import numpy as np
@@ -6,13 +7,16 @@ BORROW = True # True makes it faster with the GPU
 USE_CACHING = True # beware if you use RBM / GRBM or gammatones / speaker labels alternatively, set it to False
 TRAIN_CLASSIFIERS_1_FRAME = False # train sklearn classifiers on 1 frame
 TRAIN_CLASSIFIERS = False # train sklearn classifiers to compare the DBN to
+DIMENSION = 20  #dimension of feature vector 每帧的数据维数
+
 
 def padding(nframes, x, y):
     # dirty hacky padding
     ba = (nframes - 1) / 2 # before // after
     x2 = copy.deepcopy(x)
     on_x2 = False
-    x_f = np.zeros((x.shape[0], nframes * x.shape[1]), dtype='float32')
+    x_f = np.zeros((x.shape[0], nframes * x.shape[1]), dtype='float64')
+    print 'x_f shape:',x_f.shape
     for i in xrange(x.shape[0]):
         if y[i] == '!ENTER[2]' and y[i-1] != '!ENTER[2]': # TODO general case
             on_x2 = not on_x2
@@ -37,22 +41,9 @@ def padding(nframes, x, y):
                     'constant', constant_values=(0,0))
     return x_f
 
-def train_classifiers(train_x, train_y_f, test_x, test_y_f, articulatory=False, dataset_name='', classifiers=['lda'], nframes_mfcc=1):
-    print("size of input layer (== dimension of the features space) %d" % train_x.shape[1])
+def train_classifiers(train_x, train_y_f, test_x, test_y_f, articulatory=False):
     ### Training a SVM to compare results TODO
     #print "training a SVM" TODO
-    if 'sgd' in classifiers:
-        ### Training a linear model (elasticnet) to compare results
-        print("*** training a linear model with SGD ***")
-        from sklearn import linear_model
-        from sklearn.cross_validation import cross_val_score
-        clf = linear_model.SGDClassifier(loss='modified_huber', penalty='elasticnet') # TODO change and CV params
-        clf.fit(train_x, train_y_f)
-        scores = cross_val_score(clf, test_x, test_y_f)
-        print "score linear classifier (elasticnet, SGD trained)", scores.mean()
-        with open('linear_elasticnet_classif.pickle', 'w') as f:
-            cPickle.dump(clf, f)
-
     if 'rf' in classifiers:
         ### Training a random forest to compare results
         print("*** training a random forest ***")
@@ -128,25 +119,19 @@ def prep_data(dataset, nframes=1, features='MFCC', scaling='normalize',
     if features != 'MFCC':
         xname = "x" + features
     try:
-        train_x = np.load(dataset + "/aligned_train_" + xname + ".npy")
+        train_x = np.load(dataset + "/aligned_train_xdata.npy")
         train_y = np.load(dataset + "/aligned_train_ylabels.npy")
-        test_x = np.load(dataset + "/aligned_test_" + xname + ".npy")
+        test_x = np.load(dataset + "/aligned_test_xdata.npy")
         test_y = np.load(dataset + "/aligned_test_ylabels.npy")
-        if speakers:
-            train_yspkr = np.load(dataset + "/aligned_train_yspeakers.npy")
-            test_yspkr = np.load(dataset + "/aligned_test_yspeakers.npy")
 
     except:
         print >> sys.stderr, "you need the .npy python arrays"
         print >> sys.stderr, "you can produce them with src/timit_to_numpy.py"
         print >> sys.stderr, "applied to the HTK force-aligned MLF train/test files"
-        print >> sys.stderr, dataset + "/aligned_train_" + xname + ".npy"
+        print >> sys.stderr, dataset + "/aligned_train_xdata.npy"
         print >> sys.stderr, dataset + "/aligned_train_ylabels.npy"
-        print >> sys.stderr, dataset + "/aligned_test_" + xname + ".npy"
+        print >> sys.stderr, dataset + "/aligned_test_xdata.npy"
         print >> sys.stderr, dataset + "/aligned_test_ylabels.npy"
-        if speakers:
-            print >> sys.stderr, dataset + "/aligned_train_yspeakers.npy"
-            print >> sys.stderr, dataset + "/aligned_test_yspeakers.npy"
         sys.exit(-1)
 
     print "train_x shape:", train_x.shape
@@ -154,6 +139,7 @@ def prep_data(dataset, nframes=1, features='MFCC', scaling='normalize',
 
     if scaling == 'unit':
         ### Putting values on [0-1]
+        #print train_x
         train_x = (train_x - np.min(train_x, 0)) / np.max(train_x, 0)
         test_x = (test_x - np.min(test_x, 0)) / np.max(test_x, 0)
     elif scaling == 'normalize':
@@ -164,72 +150,46 @@ def prep_data(dataset, nframes=1, features='MFCC', scaling='normalize',
         test_x = (test_x - np.mean(test_x, 0)) / np.std(test_x, 0)
     elif scaling == 'student':
         ### T-statistic
-        train_x = (train_x - np.mean(train_x, 0)) / np.std(train_x, ddof=1)
+        train_x = (train_x - np.mean(train_x, 0)) / np.std(train_x, 0)
         test_x = (test_x - np.mean(test_x, 0)) / np.std(test_x, 0, ddof=1)
-    if pca_whiten: 
+    if pca_whiten: # TODO change/correct that looking at prep_mocha_timit
         ### PCA whitening, beware it's sklearn's and thus stays in PCA space
         from sklearn.decomposition import PCA
-        pca = PCA(n_components=pca_whiten, whiten=True)
-        if pca_whiten < 0:
-            pca = PCA(n_components='mle', whiten=True)
+        pca = PCA(n_components='mle', whiten=True)
         train_x = pca.fit_transform(train_x)
-        test_x = pca.transform(test_x)
-        with open(dataset_name + '_pca_' + xname + '.pickle', 'w') as f:
+        test_x = pca.fit_transform(test_x)
+        with open('pca_' + pca_whiten + '.pickle', 'w') as f:
             cPickle.dump(pca, f)
     train_x_f = train_x
     test_x_f = test_x
 
     ### Feature values (Xs)
-    print "preparing / padding Xs"
-    if nframes > 1:
-        if not speakers:
-            train_x_f = padding(nframes, train_x, train_y)
-        test_x_f = padding(nframes, test_x, test_y)
-
-    ### In the case of speakers discrimination:
-    if speakers:
-        # switch the y for speakers now
-        ###train_y = train_yspkr
-        test_y = test_yspkr
-        # regroup: otherwise there will be ONLY never-seen-before speakers labels in the test set
-        ###train_x = np.append(train_x, test_x, axis=0)
-        ###train_x_f = np.append(train_x_f, test_x_f, axis=0)
-        ###train_y = np.append(train_y, test_y, axis=0)
-        # change dataset name
-        train_x = test_x ###
-        train_x_f = test_x_f ###
-        train_y = test_y ###
-        dataset_name += '_spkr'
+    # print "preparing / padding Xs"
+    # if nframes > 1:
+    #     train_x_f = padding(nframes, train_x, train_y)
+    #     test_x_f = padding(nframes, test_x, test_y)
 
     ### Labels (Ys)
     from collections import Counter
-    c = Counter(train_y)
-    if speakers:
-        ###c['unknown_spkr'] = 1
-        c = Counter(test_y)
-
-    to_int = dict([(k, c.keys().index(k)) for k in c.iterkeys()])
-    to_state = dict([(c.keys().index(k), k) for k in c.iterkeys()])
-    ###if speakers:
-    ###    c2 = Counter(test_y)
-    ###    to_int.update([(spkr, to_int['unknown_spkr']) for spkr in c2.keys() if spkr not in to_int])
-
-    with open(dataset_name + '_to_int_and_to_state_dicts_tuple.pickle', 'w') as f:
+    c = Counter(train_y)    #统计train_y的每个值的个数，即每个分类的类名和属于该分类的样本数
+    to_int = dict([(k, c.keys().index(k)) for k in c.iterkeys()])   #to_int记录{类名,序号}map
+    to_state = dict([(c.keys().index(k), k) for k in c.iterkeys()]) #to_state记录{序号，类名}map
+    print to_int
+    print to_state
+    with open('to_int_and_to_state_dicts_tuple.pickle', 'w') as f:
         cPickle.dump((to_int, to_state), f)
 
     print "preparing / int mapping Ys"
-    train_y_f = np.zeros(train_y.shape[0], dtype='int32')
+    train_y_f = np.zeros(train_y.shape[0], dtype='int64')
     for i, e in enumerate(train_y):
         train_y_f[i] = to_int[e]
 
-    test_y_f = np.zeros(test_y.shape[0], dtype='int32')
+    test_y_f = np.zeros(test_y.shape[0], dtype='int64')
     for i, e in enumerate(test_y):
         test_y_f[i] = to_int[e]
 
-    if TRAIN_CLASSIFIERS_1_FRAME:
-        train_classifiers(train_x, train_y_f, test_x, test_y_f, dataset_name=dataset_name) # ONLY 1 FRAME
     if TRAIN_CLASSIFIERS:
-        train_classifiers(train_x_f, train_y_f, test_x_f, test_y_f, dataset_name=dataset_name, nframes_mfcc=nframes)
+        train_classifiers(train_x, train_y_f, test_x, test_y_f) # ONLY 1 FRAME
 
     return [train_x_f, train_y_f, test_x_f, test_y_f]
 

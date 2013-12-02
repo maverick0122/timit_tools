@@ -21,7 +21,7 @@ Copyright: Gabriel Synnaeve 2013
 doc = """
 Usage:
     python mfcc_and_gammatones.py [$folder_path] [--debug] [--htk_mfcc] 
-        [--gammatones] [--stereo] [--no-sox]
+        [--gammatones] [--stereo]
 
 You may need:
     - HCopy from HTK
@@ -49,8 +49,7 @@ def process(folder,
         forcemfcext=False,
         stereo_wav=False, 
         gammatones=False,
-        spectrograms=False,
-        dosox=True):
+        spectrograms=False):
     """ debug output? HCopy for MFCC? wav are stereo? produce gammatones? """
 
     # first find if we produce normalized MFCC, otherwise note it in the ext
@@ -75,10 +74,9 @@ def process(folder,
             wavfname = d+'/'+fname
             tempfname = d+'/'+fname[:-4]+'_temp.wav' # temp fname with .wav for sox
             mfccfname = d+'/'+fname[:-4]+mfc_extension
-            if dosox:
-                shutil.move(wavfname, tempfname)
-                call(['sox', tempfname, wavfname]) # w/o headers, sox uses extension
-                shutil.move(tempfname, rawfname)
+            shutil.move(wavfname, tempfname)
+            call(['sox', tempfname, wavfname]) # w/o headers, sox uses extension
+            shutil.move(tempfname, rawfname)
             if htk_mfc:
                 call(['HCopy', '-C', 'wav_config', wavfname, mfccfname])
             sr = 16000
@@ -114,7 +112,6 @@ if __name__ == '__main__':
         stereo = False
         gammatones = False
         spectrograms = False
-        dosox = True
         if '--debug' in sys.argv:
             debug = True
         if '--forcemfcext' in sys.argv:
@@ -127,12 +124,10 @@ if __name__ == '__main__':
             gammatones = True
         if '--spectrograms' in sys.argv:
             spectrograms = True
-        if '--no-sox' in sys.argv:
-            dosox = False
         l = filter(lambda x: not '--' in x[0:2], sys.argv)
         foldername = '.'
         if len(l) > 1:
             foldername = l[1]
-        process(foldername, debug, htk_mfcc, forcemfcext, stereo, gammatones, spectrograms, dosox)
+        process(foldername, debug, htk_mfcc, forcemfcext, stereo, gammatones, spectrograms)
     else:
         process('.') # default

@@ -1,0 +1,1 @@
+{"normalize": false, "cv_frac": 0.2, "theano_borrow?": true, "train_classifiers_1_frame?": true, "nframes_mfcc": 20, "pca_whiten_mfcc_path": 0, "student": false, "use_caching?": false, "train_classifiers?": true, "unit": false}
